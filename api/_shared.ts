@@ -19,6 +19,15 @@ export function getNominatimConfig(): NominatimConfig | null {
     return null;
   }
 
+  try {
+    const parsed = new URL(rawBase);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return null;
+    }
+  } catch {
+    return null;
+  }
+
   return {
     baseUrl: rawBase.replace(/\/+$/, ''),
     userAgent: rawAgent,

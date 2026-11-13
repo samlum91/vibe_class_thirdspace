@@ -48,7 +48,10 @@ export default async function handler(
     userAgent
   );
 
-  if (!upstream.ok) {
+  if (
+    !upstream.ok ||
+    (typeof upstream.data?.status === 'number' && upstream.data.status !== 0)
+  ) {
     res.status(502).json({
       ok: false,
       app: appStatus,
