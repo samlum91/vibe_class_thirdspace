@@ -17,6 +17,8 @@ export default async function handler(
 ): Promise<void> {
   if (!enforceGetOnly(req, res)) return;
 
+  res.setHeader('Cache-Control', 'no-store');
+
   const config = getNominatimConfig();
   if (!config) {
     res.status(503).json({
@@ -45,7 +47,8 @@ export default async function handler(
 
   res.status(200).json({
     ok: true,
-    upstreamStatus: upstream.data.status ?? 0,
+    status: upstream.data.status ?? 0,
+    message: upstream.data.message ?? 'OK',
     attribution: '© OpenStreetMap contributors, ODbL',
   });
 }

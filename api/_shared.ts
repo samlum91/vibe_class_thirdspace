@@ -71,16 +71,20 @@ export function parseValidatedCoordinates(
   if (
     rawLat === undefined ||
     rawLat === null ||
-    rawLat === '' ||
     rawLon === undefined ||
-    rawLon === null ||
-    rawLon === ''
+    rawLon === null
   ) {
     return null;
   }
 
-  const lat = Number(rawLat);
-  const lon = Number(rawLon);
+  const latStr = String(rawLat).trim();
+  const lonStr = String(rawLon).trim();
+  if (!latStr || !lonStr) {
+    return null;
+  }
+
+  const lat = Number(latStr);
+  const lon = Number(lonStr);
 
   if (
     !Number.isFinite(lat) ||

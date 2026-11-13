@@ -1,5 +1,5 @@
 /**
- * Client wrapper for our Vercel serverless geocoding endpoints (/api/geocode/*).
+ * Client wrapper for our Vercel serverless geocoding endpoints (/api/*).
  * Policy compliance:
  * - NEVER calls Nominatim directly from the browser.
  * - Caches geocoded coordinates in localStorage so repeat lookups do not re-query.
@@ -116,7 +116,7 @@ export async function geocodeSearch(
 
   try {
     const response = await fetch(
-      `/api/geocode/search?q=${encodeURIComponent(query)}`,
+      `/api/search?q=${encodeURIComponent(query)}`,
       { method: 'GET', headers: { Accept: 'application/json' } }
     );
 
@@ -131,7 +131,7 @@ export async function geocodeSearch(
       return {
         ok: false,
         error:
-          'Serverless geocoding endpoint (/api/geocode/search) is available once deployed on Vercel.',
+          'Serverless geocoding endpoint (/api/search) is available once deployed on Vercel.',
       };
     }
 
@@ -166,7 +166,7 @@ export async function geocodeSearch(
   } catch {
     return {
       ok: false,
-      error: 'Unable to reach /api/geocode/search right now.',
+      error: 'Unable to reach /api/search right now.',
     };
   }
 }
@@ -199,7 +199,7 @@ export async function geocodeReverse(
 
   try {
     const response = await fetch(
-      `/api/geocode/reverse?lat=${encodeURIComponent(String(valid.lat))}&lon=${encodeURIComponent(
+      `/api/reverse?lat=${encodeURIComponent(String(valid.lat))}&lon=${encodeURIComponent(
         String(valid.lon)
       )}`,
       { method: 'GET', headers: { Accept: 'application/json' } }
@@ -215,7 +215,7 @@ export async function geocodeReverse(
       return {
         ok: false,
         error:
-          'Serverless reverse-geocoding endpoint (/api/geocode/reverse) is available once deployed on Vercel.',
+          'Serverless reverse-geocoding endpoint (/api/reverse) is available once deployed on Vercel.',
       };
     }
 
@@ -243,14 +243,14 @@ export async function geocodeReverse(
   } catch {
     return {
       ok: false,
-      error: 'Unable to reach /api/geocode/reverse right now.',
+      error: 'Unable to reach /api/reverse right now.',
     };
   }
 }
 
 export async function checkGeocodeHealth(): Promise<GeocodeHealthResult> {
   try {
-    const response = await fetch('/api/geocode/health', {
+    const response = await fetch('/api/health', {
       method: 'GET',
       headers: { Accept: 'application/json' },
     });
@@ -265,7 +265,7 @@ export async function checkGeocodeHealth(): Promise<GeocodeHealthResult> {
         ok: false,
         configured: false,
         message:
-          'Preview mode: /api/geocode/health becomes active when deployed to Vercel.',
+          'Preview mode: /api/health becomes active when deployed to Vercel.',
       };
     }
 
@@ -286,7 +286,7 @@ export async function checkGeocodeHealth(): Promise<GeocodeHealthResult> {
     return {
       ok: false,
       configured: false,
-      message: 'Unable to reach /api/geocode/health.',
+      message: 'Unable to reach /api/health.',
     };
   }
 }

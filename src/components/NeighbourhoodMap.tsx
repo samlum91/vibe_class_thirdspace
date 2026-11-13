@@ -84,7 +84,7 @@ export const NeighbourhoodMap: React.FC<NeighbourhoodMapProps> = ({
       setGeoStatusMessage(
         res.data.cached
           ? 'Loaded cached district vicinity.'
-          : 'Verified district vicinity via /api/geocode/reverse.'
+          : 'Verified district vicinity via /api/reverse.'
       );
     } else {
       setGeoError(res.error);
