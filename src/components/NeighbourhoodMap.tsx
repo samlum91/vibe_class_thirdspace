@@ -1,6 +1,12 @@
 import React, { useState } from 'react';
-import { Compass, MapPin, Shield } from 'lucide-react';
-import { DistrictGeoResult, lookupDistrictVicinity } from '../services/nominatim';
+import { Compass, MapPin, Search, Shield } from 'lucide-react';
+import {
+  checkGeocodeHealth,
+  geocodeReverse,
+  geocodeSearch,
+  GeocodeSearchResult,
+  OSM_ATTRIBUTION,
+} from '../services/nominatim';
 import { formatFriendlyDate, formatTimeRange } from '../data/gatheringsStore';
 import { GatheringWithSessions } from '../types/gatherings';
 
@@ -23,17 +29,79 @@ export const NeighbourhoodMap: React.FC<NeighbourhoodMapProps> = ({
   cityName,
   radiusKm,
 }) => {
-  const [geoResult, setGeoResult] = useState<DistrictGeoResult | null>(null);
-  const [isLookingUp, setIsLookingUp] = useState(false);
+  const [searchQuery, setSearchQuery] = useState(`${neighbourhoodName}, ${cityName}`);
+  const [searchResult, setSearchResult] = useState<GeocodeSearchResult | null>(null);
+  const [reverseDistrictText, setReverseDistrictText] = useState<string | null>(null);
+  const [geoStatusMessage, setGeoStatusMessage] = useState<string | null>(null);
+  const [geoError, setGeoError] = useState<string | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
 
   const selectedItem =
     items.find((i) => i.gathering.id === selectedGatheringId) ?? items[0] ?? null;
 
-  const handleVerifyDistrict = async () => {
-    setIsLookingUp(true);
-    const res = await lookupDistrictVicinity(`${neighbourhoodName}, ${cityName}`);
-    setGeoResult(res);
-    setIsLookingUp(false);
+  // Geocode ONLY on explicit form submission (no autocomplete / search-as-you-type)
+  const handleGeocodeSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSearching(true);
+    setGeoError(null);
+    setGeoStatusMessage(null);
+
+    const res = await geocodeSearch(searchQuery);
+    if (res.ok) {
+      setSearchResult(res.data);
+      setGeoStatusMessage(
+        res.data.cached
+          ? 'Loaded stored district coordinates without re-querying.'
+          : 'Geocoded via server-side Nominatim proxy.'
+      );
+    } else {
+      setGeoError(res.error);
+    }
+    setIsSearching(false);
+  };
+
+  const handleReverseCheckSelected = async () => {
+    if (!selectedItem) return;
+    setIsSearching(true);
+    setGeoError(null);
+    setGeoStatusMessage(null);
+
+    const res = await geocodeReverse(
+      selectedItem.venue.approxLat,
+      selectedItem.venue.approxLng
+    );
+    if (res.ok) {
+      // Retain privacy: extract only city district / neighbourhood vicinity
+      const addr = res.data.address;
+      const districtParts = [
+        addr.neighbourhood || addr.suburb || addr.quarter,
+        addr.city_district || addr.city || addr.town,
+      ].filter(Boolean);
+
+      setReverseDistrictText(
+        districtParts.length > 0 ? districtParts.join(', ') : res.data.displayName
+      );
+      setGeoStatusMessage(
+        res.data.cached
+          ? 'Loaded cached district vicinity.'
+          : 'Verified district vicinity via /api/geocode/reverse.'
+      );
+    } else {
+      setGeoError(res.error);
+    }
+    setIsSearching(false);
+  };
+
+  const handleHealthCheck = async () => {
+    setIsSearching(true);
+    setGeoError(null);
+    const res = await checkGeocodeHealth();
+    if (res.ok) {
+      setGeoStatusMessage(res.message);
+    } else {
+      setGeoError(res.message);
+    }
+    setIsSearching(false);
   };
 
   return (
@@ -41,7 +109,7 @@ export const NeighbourhoodMap: React.FC<NeighbourhoodMapProps> = ({
       aria-labelledby="map-section-heading"
       className="bg-white border border-stone-200 rounded-xl p-5 sm:p-6"
     >
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 pb-5 border-b border-stone-200">
+      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 pb-5 border-b border-stone-200">
         <div>
           <h2
             id="map-section-heading"
@@ -57,33 +125,68 @@ export const NeighbourhoodMap: React.FC<NeighbourhoodMapProps> = ({
 
         <button
           type="button"
-          onClick={handleVerifyDistrict}
-          disabled={isLookingUp}
+          onClick={handleHealthCheck}
+          disabled={isSearching}
           className="inline-flex items-center gap-2 px-4 py-2.5 min-h-[44px] rounded-lg border border-stone-300 bg-[#FAF7F2] text-stone-900 text-sm font-semibold hover:bg-stone-100 transition-colors whitespace-nowrap shrink-0"
         >
           <Compass className="w-4 h-4 text-[#14532D] shrink-0" aria-hidden="true" />
-          <span>
-            {isLookingUp
-              ? 'Checking OpenStreetMap...'
-              : 'Verify District via OpenStreetMap'}
-          </span>
+          <span>Check Geocoder Status</span>
         </button>
       </div>
 
-      {geoResult && (
-        <div
-          role="status"
-          className="mt-4 p-3.5 rounded-lg bg-[#ECFDF5] border border-[#A7F3D0] text-sm text-stone-900 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2"
+      {/* Explicit Form-Submit District Lookup (No Autocomplete / Search-as-you-type) */}
+      <form
+        onSubmit={handleGeocodeSubmit}
+        className="mt-4 p-4 rounded-lg bg-[#FAF7F2] border border-stone-200 flex flex-col sm:flex-row sm:items-end gap-3"
+      >
+        <div className="flex-1">
+          <label
+            htmlFor="district-geocode-input"
+            className="block text-sm font-semibold text-stone-900 mb-1"
+          >
+            Look up Neighbourhood District Coordinates (Submit to Geocode)
+          </label>
+          <input
+            id="district-geocode-input"
+            type="text"
+            maxLength={200}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="e.g. Kitsilano, Vancouver"
+            className="w-full min-h-[44px] px-3.5 py-2 rounded-lg border border-stone-300 bg-white text-base text-stone-900"
+          />
+        </div>
+        <button
+          type="submit"
+          disabled={isSearching}
+          className="inline-flex items-center justify-center gap-2 px-5 py-2.5 min-h-[44px] rounded-lg bg-[#14532D] text-white text-sm font-semibold hover:bg-[#0F3F22] transition-colors whitespace-nowrap shrink-0"
         >
-          <span>
-            <strong>Verified District Vicinity:</strong> {geoResult.displayName} (
-            {geoResult.source === 'nominatim-live'
-              ? 'OpenStreetMap Nominatim keyless API'
-              : 'Verified local district bounds'}
-            )
-          </span>
-          <span className="tabular-nums text-stone-700 font-medium">
-            District Centre: {geoResult.lat.toFixed(4)}, {geoResult.lon.toFixed(4)}
+          <Search className="w-4 h-4 shrink-0" aria-hidden="true" />
+          <span>{isSearching ? 'Looking up...' : 'Look Up District'}</span>
+        </button>
+      </form>
+
+      {geoStatusMessage && (
+        <p role="status" className="mt-3 text-sm font-medium text-[#14532D]">
+          {geoStatusMessage}
+        </p>
+      )}
+      {geoError && (
+        <p role="alert" className="mt-3 text-sm font-medium text-[#991B1B]">
+          {geoError}
+        </p>
+      )}
+
+      {searchResult && (
+        <div className="mt-3 p-3.5 rounded-lg bg-[#ECFDF5] border border-[#A7F3D0] text-sm text-stone-900 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <div>
+            <p>
+              <strong>District Match:</strong> {searchResult.displayName}
+            </p>
+            <p className="text-xs text-stone-700 mt-0.5">{OSM_ATTRIBUTION}</p>
+          </div>
+          <span className="tabular-nums text-stone-800 font-semibold whitespace-nowrap">
+            {searchResult.lat.toFixed(4)}, {searchResult.lon.toFixed(4)}
           </span>
         </div>
       )}
@@ -117,7 +220,6 @@ export const NeighbourhoodMap: React.FC<NeighbourhoodMapProps> = ({
             </text>
 
             {/* Neighbourhood Parks */}
-            {/* Kitsilano Beach Park */}
             <path
               d="M 465,86 Q 555,74 635,96 L 620,152 L 460,148 Z"
               fill="#D4E4CF"
@@ -128,7 +230,6 @@ export const NeighbourhoodMap: React.FC<NeighbourhoodMapProps> = ({
               Kitsilano Beach Park
             </text>
 
-            {/* Connaught Park */}
             <rect
               x="365"
               y="265"
@@ -143,7 +244,7 @@ export const NeighbourhoodMap: React.FC<NeighbourhoodMapProps> = ({
               Connaught Park
             </text>
 
-            {/* Major Neighbourhood Streets (West-East) */}
+            {/* Major Neighbourhood Streets */}
             <g stroke="#FFFFFF" strokeWidth="7" strokeLinecap="round">
               <path d="M 30,132 Q 360,115 770,138" fill="none" />
               <line x1="20" y1="215" x2="780" y2="215" />
@@ -155,14 +256,12 @@ export const NeighbourhoodMap: React.FC<NeighbourhoodMapProps> = ({
               <line x1="20" y1="355" x2="780" y2="355" />
             </g>
 
-            {/* Major Neighbourhood Streets (North-South) */}
             <g stroke="#FFFFFF" strokeWidth="6" strokeLinecap="round">
               <line x1="160" y1="95" x2="160" y2="455" />
               <line x1="335" y1="90" x2="335" y2="455" />
               <line x1="515" y1="88" x2="515" y2="455" />
               <path d="M 655,105 L 635,455" fill="none" />
             </g>
-            {/* Arbutus Greenway */}
             <path
               d="M 655,105 L 635,455"
               stroke="#84A98C"
@@ -171,7 +270,6 @@ export const NeighbourhoodMap: React.FC<NeighbourhoodMapProps> = ({
               fill="none"
             />
 
-            {/* Street Labels (High Contrast) */}
             <text x="235" y="207" fill="#57534E" fontSize="12" fontWeight="600">
               West 4th Avenue
             </text>
@@ -212,7 +310,6 @@ export const NeighbourhoodMap: React.FC<NeighbourhoodMapProps> = ({
               Local Walking Boundary ({radiusKm} km radius · Nearby public venues only)
             </text>
 
-            {/* Resident Neighbourhood Centre Marker */}
             <circle cx="415" cy="255" r="7" fill="#57534E" stroke="#FFFFFF" strokeWidth="2.5" />
             <text x="415" y="242" textAnchor="middle" fill="#1C1917" fontSize="11" fontWeight="700">
               Your District Centre
@@ -235,7 +332,10 @@ export const NeighbourhoodMap: React.FC<NeighbourhoodMapProps> = ({
               <button
                 key={item.gathering.id}
                 type="button"
-                onClick={() => onSelectGathering(item.gathering.id)}
+                onClick={() => {
+                  onSelectGathering(item.gathering.id);
+                  setReverseDistrictText(null);
+                }}
                 onDoubleClick={() => onOpenPopup(item)}
                 style={{
                   left: `${item.venue.mapX}%`,
@@ -260,6 +360,11 @@ export const NeighbourhoodMap: React.FC<NeighbourhoodMapProps> = ({
               </button>
             );
           })}
+
+          {/* Mandatory OpenStreetMap Attribution Badge */}
+          <div className="absolute bottom-2 right-2 bg-white/95 px-2.5 py-1 rounded border border-stone-300 text-xs font-medium text-stone-800">
+            {OSM_ATTRIBUTION}
+          </div>
         </div>
 
         {/* Selected Pin Quick Inspector Panel */}
@@ -299,6 +404,11 @@ export const NeighbourhoodMap: React.FC<NeighbourhoodMapProps> = ({
               <p className="mt-3 text-sm text-stone-800 line-clamp-4 leading-relaxed">
                 {selectedItem.gathering.summary}
               </p>
+              {reverseDistrictText && (
+                <p className="mt-3 p-2.5 rounded-lg bg-white border border-stone-200 text-xs text-stone-800">
+                  <strong>Verified Vicinity:</strong> {reverseDistrictText} ({OSM_ATTRIBUTION})
+                </p>
+              )}
             </div>
           ) : (
             <p className="text-base text-stone-700">
@@ -306,21 +416,32 @@ export const NeighbourhoodMap: React.FC<NeighbourhoodMapProps> = ({
             </p>
           )}
 
-          <div className="mt-5 pt-4 border-t border-stone-200 space-y-3">
+          <div className="mt-5 pt-4 border-t border-stone-200 space-y-2.5">
             <div className="flex items-start gap-2 text-xs text-stone-700">
               <Shield className="w-4 h-4 text-[#14532D] shrink-0 mt-0.5" aria-hidden="true" />
               <span>
-                District vicinity only is shown here to protect residents and venues.
+                District vicinity only is shown here to protect residents and venues.{' '}
+                {OSM_ATTRIBUTION}.
               </span>
             </div>
             {selectedItem && (
-              <button
-                type="button"
-                onClick={() => onOpenPopup(selectedItem)}
-                className="w-full px-4 py-2.5 min-h-[44px] rounded-lg bg-[#14532D] text-white text-sm font-semibold hover:bg-[#0F3F22] transition-colors"
-              >
-                Open Full Gathering Pop-up & RSVP
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={handleReverseCheckSelected}
+                  disabled={isSearching}
+                  className="w-full px-4 py-2.5 min-h-[44px] rounded-lg border border-stone-300 bg-white text-stone-900 text-sm font-semibold hover:bg-stone-100 transition-colors"
+                >
+                  Confirm District via Reverse Geocode
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onOpenPopup(selectedItem)}
+                  className="w-full px-4 py-2.5 min-h-[44px] rounded-lg bg-[#14532D] text-white text-sm font-semibold hover:bg-[#0F3F22] transition-colors"
+                >
+                  Open Full Gathering Pop-up & RSVP
+                </button>
+              </>
             )}
           </div>
         </aside>

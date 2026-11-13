@@ -92,6 +92,9 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
               Approx. {venue.walkingMinutes} min walk ({venue.distanceKm.toFixed(1)} km) · Exact room
               notes shared after RSVP
             </dd>
+            <dd className="text-xs text-stone-600 mt-0.5">
+              © OpenStreetMap contributors, ODbL
+            </dd>
           </div>
 
           <div>

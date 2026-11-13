@@ -1,83 +1,293 @@
 /**
- * Keyless OpenStreetMap Nominatim lookup for district-level vicinity verification.
- * Privacy rule: Queries ONLY city district / neighbourhood names (never residential addresses)
- * and falls back gracefully to local district coordinates if offline or rate-limited.
+ * Client wrapper for our Vercel serverless geocoding endpoints (/api/geocode/*).
+ * Policy compliance:
+ * - NEVER calls Nominatim directly from the browser.
+ * - Caches geocoded coordinates in localStorage so repeat lookups do not re-query.
+ * - Geocode only on explicit form submission (no autocomplete / search-as-you-type).
+ * - Converts and validates coordinates with Number() before storing or returning.
  */
 
-export interface DistrictGeoResult {
-  displayName: string;
+export const OSM_ATTRIBUTION = '© OpenStreetMap contributors, ODbL';
+
+const GEOCODE_CACHE_KEY = 'kitsilano_geocode_cache_v1';
+
+export interface GeocodeSearchResult {
   lat: number;
   lon: number;
-  boundingBox: [number, number, number, number]; // [south, north, west, east]
-  source: 'nominatim-live' | 'local-verified-cache';
+  displayName: string;
+  cached: boolean;
 }
 
-const FALLBACK_DISTRICT: DistrictGeoResult = {
-  displayName: 'Kitsilano, Vancouver, British Columbia',
-  lat: 49.2684,
-  lon: -123.1683,
-  boundingBox: [49.2572, 49.2788, -123.1856, -123.1452],
-  source: 'local-verified-cache',
-};
+export interface GeocodeReverseResult {
+  displayName: string;
+  address: Record<string, string>;
+  cached: boolean;
+}
 
-export async function lookupDistrictVicinity(
-  districtQuery = 'Kitsilano, Vancouver'
-): Promise<DistrictGeoResult> {
-  const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), 3500);
+export interface GeocodeHealthResult {
+  ok: boolean;
+  configured: boolean;
+  message: string;
+}
+
+interface StoredGeocodeCache {
+  search: Record<string, { lat: number; lon: number; displayName: string }>;
+  reverse: Record<string, { displayName: string; address: Record<string, string> }>;
+}
+
+function readCache(): StoredGeocodeCache {
+  try {
+    const raw = window.localStorage.getItem(GEOCODE_CACHE_KEY);
+    if (!raw) return { search: {}, reverse: {} };
+    const parsed = JSON.parse(raw) as Partial<StoredGeocodeCache>;
+    return {
+      search: parsed.search && typeof parsed.search === 'object' ? parsed.search : {},
+      reverse: parsed.reverse && typeof parsed.reverse === 'object' ? parsed.reverse : {},
+    };
+  } catch {
+    return { search: {}, reverse: {} };
+  }
+}
+
+function writeCache(cache: StoredGeocodeCache): void {
+  try {
+    window.localStorage.setItem(GEOCODE_CACHE_KEY, JSON.stringify(cache));
+  } catch {
+    // Ignore storage quota errors
+  }
+}
+
+function validateCoords(rawLat: unknown, rawLon: unknown): { lat: number; lon: number } | null {
+  const lat = Number(rawLat);
+  const lon = Number(rawLon);
+  if (
+    !Number.isFinite(lat) ||
+    !Number.isFinite(lon) ||
+    lat < -90 ||
+    lat > 90 ||
+    lon < -180 ||
+    lon > 180
+  ) {
+    return null;
+  }
+  return { lat, lon };
+}
+
+async function parseJsonSafely<T>(response: Response): Promise<T | null> {
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    return null;
+  }
+  try {
+    return (await response.json()) as T;
+  } catch {
+    return null;
+  }
+}
+
+export async function geocodeSearch(
+  rawQuery: string
+): Promise<{ ok: true; data: GeocodeSearchResult } | { ok: false; error: string }> {
+  const query = rawQuery.trim();
+  if (!query) {
+    return { ok: false, error: 'Please enter a neighbourhood or district name to look up.' };
+  }
+  if (query.length > 200) {
+    return { ok: false, error: 'Search query must be 200 characters or fewer.' };
+  }
+
+  const cache = readCache();
+  const cacheKey = query.toLowerCase();
+  const cachedHit = cache.search[cacheKey];
+  if (cachedHit) {
+    const valid = validateCoords(cachedHit.lat, cachedHit.lon);
+    if (valid) {
+      return {
+        ok: true,
+        data: {
+          lat: valid.lat,
+          lon: valid.lon,
+          displayName: cachedHit.displayName,
+          cached: true,
+        },
+      };
+    }
+  }
 
   try {
-    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(
-      districtQuery
-    )}&format=json&limit=1`;
+    const response = await fetch(
+      `/api/geocode/search?q=${encodeURIComponent(query)}`,
+      { method: 'GET', headers: { Accept: 'application/json' } }
+    );
 
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        Accept: 'application/json',
-      },
-      signal: controller.signal,
-    });
+    const json = await parseJsonSafely<{
+      lat?: unknown;
+      lon?: unknown;
+      displayName?: string;
+      error?: string;
+    }>(response);
+
+    if (!json) {
+      return {
+        ok: false,
+        error:
+          'Serverless geocoding endpoint (/api/geocode/search) is available once deployed on Vercel with NOMINATIM_BASE_URL and NOMINATIM_USER_AGENT set.',
+      };
+    }
 
     if (!response.ok) {
-      return FALLBACK_DISTRICT;
+      return {
+        ok: false,
+        error: json.error || `Geocoding lookup failed (HTTP ${response.status}).`,
+      };
     }
 
-    const results = (await response.json()) as Array<{
-      display_name?: string;
-      lat?: string;
-      lon?: string;
-      boundingbox?: [string, string, string, string];
-    }>;
-
-    if (!Array.isArray(results) || results.length === 0) {
-      return FALLBACK_DISTRICT;
+    const valid = validateCoords(json.lat, json.lon);
+    if (!valid || !json.displayName) {
+      return { ok: false, error: 'Server returned invalid coordinate data.' };
     }
 
-    const first = results[0];
-    const lat = Number(first.lat);
-    const lon = Number(first.lon);
-    const bbox = first.boundingbox?.map(Number) as
-      | [number, number, number, number]
-      | undefined;
+    cache.search[cacheKey] = {
+      lat: valid.lat,
+      lon: valid.lon,
+      displayName: json.displayName,
+    };
+    writeCache(cache);
 
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-      return FALLBACK_DISTRICT;
+    return {
+      ok: true,
+      data: {
+        lat: valid.lat,
+        lon: valid.lon,
+        displayName: json.displayName,
+        cached: false,
+      },
+    };
+  } catch {
+    return {
+      ok: false,
+      error: 'Unable to reach /api/geocode/search right now.',
+    };
+  }
+}
+
+export async function geocodeReverse(
+  rawLat: number,
+  rawLon: number
+): Promise<{ ok: true; data: GeocodeReverseResult } | { ok: false; error: string }> {
+  const valid = validateCoords(rawLat, rawLon);
+  if (!valid) {
+    return {
+      ok: false,
+      error: 'Latitude must be between -90 and 90, and longitude between -180 and 180.',
+    };
+  }
+
+  const cache = readCache();
+  const cacheKey = `${valid.lat.toFixed(5)},${valid.lon.toFixed(5)}`;
+  const cachedHit = cache.reverse[cacheKey];
+  if (cachedHit) {
+    return {
+      ok: true,
+      data: {
+        displayName: cachedHit.displayName,
+        address: cachedHit.address,
+        cached: true,
+      },
+    };
+  }
+
+  try {
+    const response = await fetch(
+      `/api/geocode/reverse?lat=${encodeURIComponent(String(valid.lat))}&lon=${encodeURIComponent(
+        String(valid.lon)
+      )}`,
+      { method: 'GET', headers: { Accept: 'application/json' } }
+    );
+
+    const json = await parseJsonSafely<{
+      displayName?: string;
+      address?: Record<string, string>;
+      error?: string;
+    }>(response);
+
+    if (!json) {
+      return {
+        ok: false,
+        error:
+          'Serverless reverse-geocoding endpoint (/api/geocode/reverse) is available once deployed on Vercel.',
+      };
+    }
+
+    if (!response.ok || !json.displayName) {
+      return {
+        ok: false,
+        error: json.error || `Reverse geocoding failed (HTTP ${response.status}).`,
+      };
+    }
+
+    cache.reverse[cacheKey] = {
+      displayName: json.displayName,
+      address: json.address ?? {},
+    };
+    writeCache(cache);
+
+    return {
+      ok: true,
+      data: {
+        displayName: json.displayName,
+        address: json.address ?? {},
+        cached: false,
+      },
+    };
+  } catch {
+    return {
+      ok: false,
+      error: 'Unable to reach /api/geocode/reverse right now.',
+    };
+  }
+}
+
+export async function checkGeocodeHealth(): Promise<GeocodeHealthResult> {
+  try {
+    const response = await fetch('/api/geocode/health', {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+    });
+
+    const json = await parseJsonSafely<{
+      ok?: boolean;
+      configured?: boolean;
+      error?: string;
+    }>(response);
+
+    if (!json) {
+      return {
+        ok: false,
+        configured: false,
+        message:
+          'Preview mode: /api/geocode/health will become active when deployed to Vercel with Nominatim environment variables.',
+      };
+    }
+
+    if (!response.ok || !json.ok) {
+      return {
+        ok: false,
+        configured: Boolean(json.configured),
+        message: json.error || `Health check returned HTTP ${response.status}.`,
+      };
     }
 
     return {
-      displayName: first.display_name || FALLBACK_DISTRICT.displayName,
-      lat,
-      lon,
-      boundingBox:
-        bbox && bbox.length === 4 && bbox.every(Number.isFinite)
-          ? bbox
-          : FALLBACK_DISTRICT.boundingBox,
-      source: 'nominatim-live',
+      ok: true,
+      configured: true,
+      message: 'Serverless Nominatim geocoder is configured and reachable.',
     };
   } catch {
-    return FALLBACK_DISTRICT;
-  } finally {
-    window.clearTimeout(timer);
+    return {
+      ok: false,
+      configured: false,
+      message: 'Unable to reach /api/geocode/health.',
+    };
   }
 }

@@ -257,8 +257,8 @@ export default function App() {
       <footer className="bg-white border-t border-stone-200 mt-10">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-sm text-stone-700">
           <p>
-            Kitsilano Third Place · Single-neighbourhood community demo (state saved in browser
-            localStorage).
+            Kitsilano Third Place · Single-neighbourhood community demo · © OpenStreetMap
+            contributors, ODbL.
           </p>
           <button
             type="button"
