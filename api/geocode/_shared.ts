@@ -11,26 +11,17 @@ export interface NominatimConfig {
   userAgent: string;
 }
 
-export function getNominatimConfig():
-  | { ok: true; config: NominatimConfig }
-  | { ok: false; missing: string[] } {
+export function getNominatimConfig(): NominatimConfig | null {
   const rawBase = process.env.NOMINATIM_BASE_URL?.trim() ?? '';
   const rawAgent = process.env.NOMINATIM_USER_AGENT?.trim() ?? '';
 
-  const missing: string[] = [];
-  if (!rawBase) missing.push('NOMINATIM_BASE_URL');
-  if (!rawAgent) missing.push('NOMINATIM_USER_AGENT');
-
-  if (missing.length > 0) {
-    return { ok: false, missing };
+  if (!rawBase || !rawAgent) {
+    return null;
   }
 
   return {
-    ok: true,
-    config: {
-      baseUrl: rawBase.replace(/\/+$/, ''),
-      userAgent: rawAgent,
-    },
+    baseUrl: rawBase.replace(/\/+$/, ''),
+    userAgent: rawAgent,
   };
 }
 

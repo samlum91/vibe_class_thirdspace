@@ -17,20 +17,18 @@ export default async function handler(
 ): Promise<void> {
   if (!enforceGetOnly(req, res)) return;
 
-  const envCheck = getNominatimConfig();
-  if (!envCheck.ok) {
+  const config = getNominatimConfig();
+  if (!config) {
     res.status(503).json({
       ok: false,
-      configured: false,
-      missing: envCheck.missing,
-      error: 'Geocoding environment variables are not configured.',
+      error: 'Geocoding service is currently unavailable.',
     });
     return;
   }
 
   if (!tryAcquireThrottleSlot(res)) return;
 
-  const { baseUrl, userAgent } = envCheck.config;
+  const { baseUrl, userAgent } = config;
   const upstreamUrl = `${baseUrl}/status?format=json`;
   const upstream = await fetchNominatimJson<NominatimStatusResponse>(
     upstreamUrl,
@@ -40,7 +38,6 @@ export default async function handler(
   if (!upstream.ok) {
     res.status(502).json({
       ok: false,
-      configured: true,
       error: 'Upstream geocoding service is currently unreachable.',
     });
     return;
@@ -48,7 +45,6 @@ export default async function handler(
 
   res.status(200).json({
     ok: true,
-    configured: true,
     upstreamStatus: upstream.data.status ?? 0,
     attribution: '© OpenStreetMap contributors, ODbL',
   });

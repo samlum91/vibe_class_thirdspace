@@ -131,7 +131,7 @@ export async function geocodeSearch(
       return {
         ok: false,
         error:
-          'Serverless geocoding endpoint (/api/geocode/search) is available once deployed on Vercel with NOMINATIM_BASE_URL and NOMINATIM_USER_AGENT set.',
+          'Serverless geocoding endpoint (/api/geocode/search) is available once deployed on Vercel.',
       };
     }
 
@@ -257,7 +257,6 @@ export async function checkGeocodeHealth(): Promise<GeocodeHealthResult> {
 
     const json = await parseJsonSafely<{
       ok?: boolean;
-      configured?: boolean;
       error?: string;
     }>(response);
 
@@ -266,14 +265,14 @@ export async function checkGeocodeHealth(): Promise<GeocodeHealthResult> {
         ok: false,
         configured: false,
         message:
-          'Preview mode: /api/geocode/health will become active when deployed to Vercel with Nominatim environment variables.',
+          'Preview mode: /api/geocode/health becomes active when deployed to Vercel.',
       };
     }
 
     if (!response.ok || !json.ok) {
       return {
         ok: false,
-        configured: Boolean(json.configured),
+        configured: false,
         message: json.error || `Health check returned HTTP ${response.status}.`,
       };
     }
@@ -281,7 +280,7 @@ export async function checkGeocodeHealth(): Promise<GeocodeHealthResult> {
     return {
       ok: true,
       configured: true,
-      message: 'Serverless Nominatim geocoder is configured and reachable.',
+      message: 'Serverless Nominatim geocoder is reachable.',
     };
   } catch {
     return {

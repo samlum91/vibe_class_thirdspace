@@ -29,10 +29,10 @@ export default async function handler(
 ): Promise<void> {
   if (!enforceGetOnly(req, res)) return;
 
-  const envCheck = getNominatimConfig();
-  if (!envCheck.ok) {
+  const config = getNominatimConfig();
+  if (!config) {
     res.status(503).json({
-      error: 'Geocoding service is not configured on the server.',
+      error: 'Geocoding service is currently unavailable.',
     });
     return;
   }
@@ -57,7 +57,7 @@ export default async function handler(
 
   if (!tryAcquireThrottleSlot(res)) return;
 
-  const { baseUrl, userAgent } = envCheck.config;
+  const { baseUrl, userAgent } = config;
   const upstreamUrl = `${baseUrl}/search?q=${encodeURIComponent(
     query
   )}&format=json&limit=1`;
