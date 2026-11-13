@@ -1,0 +1,6 @@
+{
+  "name": "Kitsilano Third Place",
+  "description": "A neighbourhood gathering dashboard connecting residents, hosts, and local community venues within walking distance.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
