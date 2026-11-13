@@ -19,11 +19,22 @@ export default async function handler(
 
   res.setHeader('Cache-Control', 'no-store');
 
+  const appStatus = {
+    ok: true,
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+  };
+
   const config = getNominatimConfig();
   if (!config) {
     res.status(503).json({
       ok: false,
-      error: 'Geocoding service is currently unavailable.',
+      app: appStatus,
+      nominatim: {
+        ok: false,
+        status: 'unavailable',
+        message: 'Nominatim geocoding service is not active.',
+      },
     });
     return;
   }
@@ -40,15 +51,24 @@ export default async function handler(
   if (!upstream.ok) {
     res.status(502).json({
       ok: false,
-      error: 'Upstream geocoding service is currently unreachable.',
+      app: appStatus,
+      nominatim: {
+        ok: false,
+        status: 'unreachable',
+        message: 'Upstream Nominatim service is currently unreachable.',
+      },
     });
     return;
   }
 
   res.status(200).json({
     ok: true,
-    status: upstream.data.status ?? 0,
-    message: upstream.data.message ?? 'OK',
-    attribution: '© OpenStreetMap contributors, ODbL',
+    app: appStatus,
+    nominatim: {
+      ok: true,
+      status: upstream.data.status ?? 0,
+      message: upstream.data.message ?? 'OK',
+      attribution: '© OpenStreetMap contributors, ODbL',
+    },
   });
 }
