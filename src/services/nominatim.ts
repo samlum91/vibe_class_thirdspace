@@ -258,6 +258,7 @@ export async function checkGeocodeHealth(): Promise<GeocodeHealthResult> {
     const json = await parseJsonSafely<{
       ok?: boolean;
       error?: string;
+      nominatim?: { ok?: boolean; status?: string | number; message?: string };
     }>(response);
 
     if (!json) {
@@ -273,14 +274,17 @@ export async function checkGeocodeHealth(): Promise<GeocodeHealthResult> {
       return {
         ok: false,
         configured: false,
-        message: json.error || `Health check returned HTTP ${response.status}.`,
+        message:
+          json.nominatim?.message ||
+          json.error ||
+          `Health check returned HTTP ${response.status}.`,
       };
     }
 
     return {
       ok: true,
       configured: true,
-      message: 'Serverless Nominatim geocoder is reachable.',
+      message: `Serverless Nominatim geocoder is reachable (${json.nominatim?.message || 'OK'}).`,
     };
   } catch {
     return {
